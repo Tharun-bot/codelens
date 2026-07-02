@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codelens"
+version = "0.1.0"
+description = "Semantic code search engine — index a codebase, search it by meaning"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+include = ["codelens*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow (model downloads etc.)",
+    "network: marks tests that hit the real network",
+]
