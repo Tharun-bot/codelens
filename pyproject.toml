@@ -17,3 +17,5 @@ markers = [
     "slow: marks tests as slow (model downloads etc.)",
     "network: marks tests that hit the real network",
 ]
+[project.scripts]
+codelens = "codelens.cli:app"

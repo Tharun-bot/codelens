@@ -13,7 +13,7 @@ from pathlib import Path
 from codelens.chunker import CodeChunk, chunk_file
 from codelens.db import create_repo, get_engine, get_session, init_db, insert_chunks
 from codelens.embedder import Embedder
-from codelens.ingest import discover_files
+from codelens.ingest import discover_files, resolve_repo_source
 from codelens.vector_index import VectorIndex
 
 
@@ -49,7 +49,9 @@ def index_repository(
     Raises:
         ValueError if no chunkable files are found under `path`.
     """
-    path = Path(path)
+# Resolve to a local path — clones it first if `path` is actually a git URL
+    resolved_path = resolve_repo_source(str(path))
+
     index_dir = Path(index_dir)
     index_dir.mkdir(parents=True, exist_ok=True)
 
@@ -57,7 +59,7 @@ def index_repository(
         embedder = Embedder()
 
     # 1. Discover files
-    files = discover_files(path)
+    files = discover_files(resolved_path)
 
     # 2. Chunk each file
     all_chunks: list[CodeChunk] = []
@@ -80,7 +82,7 @@ def index_repository(
     session = get_session(engine)
 
     try:
-        repo = create_repo(session, str(path))
+        repo = create_repo(session, str(path))  # store original path/URL, not the temp clone dir
 
         chunk_dicts = [
             {

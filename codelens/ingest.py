@@ -1,6 +1,8 @@
 """File ingestion: walk a directory and discover source files to index."""
 
 from pathlib import Path
+import subprocess
+import tempfile
 
 # Directories we never want to walk into
 EXCLUDED_DIRS = {
@@ -92,3 +94,56 @@ def read_file(path: Path) -> str:
     """Read a source file's contents as text. Raises if unreadable."""
     with open(path, "r", encoding="utf-8") as f:
         return f.read()
+
+def is_git_url(path_or_url: str) -> bool:
+    """
+    Heuristic check for whether a string is a git URL rather than a local path.
+    Covers https://, git://, ssh, git@, and file:// (used in tests / local bares).
+    """
+    return (
+        path_or_url.startswith("https://")
+        or path_or_url.startswith("http://")
+        or path_or_url.startswith("git://")
+        or path_or_url.startswith("git@")
+        or path_or_url.startswith("ssh://")
+        or path_or_url.startswith("file://")
+    )
+
+
+def resolve_repo_source(path_or_url: str) -> Path:
+    """
+    Given either a local directory path or a git URL, return a local Path
+    ready to be walked by discover_files().
+
+    If it's a URL, shallow-clones it into a temp directory (depth=1, so we
+    only pull the latest snapshot, not full history — much faster for
+    indexing purposes since we only care about current source, not git log).
+
+    If it's a local path, returns it unchanged (after existence check).
+
+    Raises:
+        FileNotFoundError: local path doesn't exist
+        RuntimeError: git clone failed
+    """
+    if is_git_url(path_or_url):
+        return _clone_repo(path_or_url)
+
+    local_path = Path(path_or_url)
+    if not local_path.exists():
+        raise FileNotFoundError(f"Path does not exist: {local_path}")
+    return local_path
+
+
+def _clone_repo(url: str) -> Path:
+    dest = Path(tempfile.mkdtemp(prefix="codelens_clone_"))
+
+    result = subprocess.run(
+        ["git", "clone", "--depth", "1", url, str(dest)],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(f"git clone failed for {url}:\n{result.stderr}")
+
+    return dest
