@@ -100,3 +100,33 @@ def test_search_on_nonexistent_repo_returns_404(client):
         "/search", json={"query": "anything", "repo_id": 999999, "k": 5}
     )
     assert response.status_code == 404
+
+@pytest.mark.slow
+def test_search_reranking_changes_order_from_raw_faiss(client, tmp_path):
+    # Build a fixture repo where the naive vector-similarity winner and the
+    # true best match are different, so reranking has something to correct.
+    repo_dir = tmp_path / "rerank_repo"
+    repo_dir.mkdir()
+    (repo_dir / "utils.py").write_text(
+        "def parse_config(path):\n"
+        "    \"\"\"Load and parse a JSON configuration file.\"\"\"\n"
+        "    with open(path) as f:\n"
+        "        return json.load(f)\n"
+        "\n"
+        "def reverse_text(s):\n"
+        "    return s[::-1]\n"
+        "\n"
+        "def fetch_data(url):\n"
+        "    return requests.get(url).json()\n"
+    )
+
+    index_response = client.post("/index", json={"path_or_url": str(repo_dir)})
+    repo_id = index_response.json()["repo_id"]
+
+    search_response = client.post(
+        "/search", json={"query": "parse JSON config file", "repo_id": repo_id, "k": 3}
+    )
+    results = search_response.json()["results"]
+
+    # after reranking, the config parser should be the top result
+    assert results[0]["name"] == "parse_config"

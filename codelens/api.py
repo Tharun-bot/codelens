@@ -17,6 +17,7 @@ from codelens.db import get_chunks_by_faiss_ids, get_engine, get_session, init_d
 from codelens.embedder import Embedder
 from codelens.pipeline import index_repository
 from codelens.vector_index import VectorIndex
+from codelens.reranker import Reranker
 
 app = FastAPI(title="CodeLens", description="Semantic code search engine")
 
@@ -25,8 +26,9 @@ INDEX_DIR = Path("data/indexes")
 
 # Process-wide caches — avoid reloading the embedding model or re-reading
 # FAISS index files from disk on every single request.
-_embedder: Embedder | None = None
+__embedder: Embedder | None = None
 _vector_index_cache: dict[int, VectorIndex] = {}
+_reranker: Reranker | None = None
 
 
 def get_embedder() -> Embedder:
@@ -34,6 +36,12 @@ def get_embedder() -> Embedder:
     if _embedder is None:
         _embedder = Embedder()
     return _embedder
+
+def get_reranker() -> Reranker:
+    global _reranker
+    if _reranker is None:
+        _reranker = Reranker()
+    return _reranker
 
 
 def get_vector_index(repo_id: int) -> VectorIndex:
@@ -103,8 +111,12 @@ def search_endpoint(request: SearchRequest):
     vector_index = get_vector_index(request.repo_id)
     embedder = get_embedder()
 
+    # Stage 1: bi-encoder retrieval via FAISS — cast a wide net (up to 10
+    # candidates) even if the caller wants fewer final results, so the
+    # cross-encoder has enough to meaningfully re-rank.
     query_vec = embedder.embed_query(request.query)
-    scores, ids = vector_index.search(query_vec, k=request.k)
+    retrieval_k = max(request.k, 10)
+    scores, ids = vector_index.search(query_vec, k=retrieval_k)
 
     if len(ids) == 0:
         return SearchResponse(results=[])
@@ -114,25 +126,31 @@ def search_endpoint(request: SearchRequest):
     session = get_session(engine)
     try:
         chunks = get_chunks_by_faiss_ids(session, request.repo_id, [int(i) for i in ids])
-        # get_chunks_by_faiss_ids doesn't guarantee order — re-sort to match FAISS ranking
         chunks_by_faiss_id = {c.faiss_id: c for c in chunks}
 
-        results = []
-        for score, faiss_id in zip(scores, ids):
-            chunk = chunks_by_faiss_id.get(int(faiss_id))
-            if chunk is None:
-                continue
-            results.append(
-                SearchResult(
-                    file_path=chunk.file_path,
-                    name=chunk.name,
-                    node_type=chunk.node_type,
-                    start_line=chunk.start_line,
-                    end_line=chunk.end_line,
-                    score=float(score),
-                    snippet=chunk.source_text,
-                )
+        # preserve FAISS ranking order for the candidates we actually found metadata for
+        candidates = [
+            chunks_by_faiss_id[int(faiss_id)]
+            for faiss_id in ids
+            if int(faiss_id) in chunks_by_faiss_id
+        ]
+
+        # Stage 2: cross-encoder re-ranking on the shortlist
+        reranker = get_reranker()
+        reranked = reranker.rerank(request.query, candidates)
+
+        results = [
+            SearchResult(
+                file_path=chunk.file_path,
+                name=chunk.name,
+                node_type=chunk.node_type,
+                start_line=chunk.start_line,
+                end_line=chunk.end_line,
+                score=score,
+                snippet=chunk.source_text,
             )
+            for chunk, score in reranked[: request.k]
+        ]
         return SearchResponse(results=results)
     finally:
         session.close()
