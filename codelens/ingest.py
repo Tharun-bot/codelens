@@ -137,11 +137,21 @@ def resolve_repo_source(path_or_url: str) -> Path:
 def _clone_repo(url: str) -> Path:
     dest = Path(tempfile.mkdtemp(prefix="codelens_clone_"))
 
-    result = subprocess.run(
-        ["git", "clone", "--depth", "1", url, str(dest)],
-        capture_output=True,
-        text=True,
-    )
+    env = {
+        **__import__("os").environ,
+        "GIT_TERMINAL_PROMPT": "0",  # never hang waiting for interactive credential input
+    }
+
+    try:
+        result = subprocess.run(
+            ["git", "clone", "--depth", "1", url, str(dest)],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=120,  # fail loudly instead of hanging forever on network issues
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"git clone timed out after 120s for {url}")
 
     if result.returncode != 0:
         raise RuntimeError(f"git clone failed for {url}:\n{result.stderr}")

@@ -1,0 +1,18 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+    env_file:
+      - .env
+    volumes:
+      # persist FAISS index files across container restarts
+      - ./data:/app/data
+      # cache the downloaded sentence-transformers models so they don't
+      # re-download every time the container restarts
+      - model_cache:/root/.cache
+
+volumes:
+  model_cache:

@@ -18,6 +18,10 @@ from codelens.embedder import Embedder
 from codelens.pipeline import index_repository
 from codelens.vector_index import VectorIndex
 from codelens.reranker import Reranker
+from codelens.ingest import is_git_url
+import logging
+
+logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="CodeLens", description="Semantic code search engine")
 
@@ -26,7 +30,7 @@ INDEX_DIR = Path("data/indexes")
 
 # Process-wide caches — avoid reloading the embedding model or re-reading
 # FAISS index files from disk on every single request.
-__embedder: Embedder | None = None
+_embedder: Embedder | None = None
 _vector_index_cache: dict[int, VectorIndex] = {}
 _reranker: Reranker | None = None
 
@@ -91,13 +95,12 @@ def health():
 
 @app.post("/index", response_model=IndexResponse)
 def index_endpoint(request: IndexRequest):
-    path = Path(request.path_or_url)
-    if not path.exists():
-        raise HTTPException(status_code=400, detail=f"Path does not exist: {path}")
-
+    path_or_url = request.path_or_url
+    if not is_git_url(path_or_url) and not Path(path_or_url).exists():
+        raise HTTPException(status_code=400, detail=f"Path does not exist: {path_or_url}")
     try:
-        result = index_repository(path, index_dir=INDEX_DIR, embedder=get_embedder())
-    except ValueError as e:
+        result = index_repository(path_or_url, index_dir=INDEX_DIR, embedder=get_embedder())
+    except (ValueError, FileNotFoundError, RuntimeError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
     # invalidate any stale cached index for this repo_id (shouldn't normally collide, but be safe)

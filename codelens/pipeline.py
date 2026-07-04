@@ -15,6 +15,9 @@ from codelens.db import create_repo, get_engine, get_session, init_db, insert_ch
 from codelens.embedder import Embedder
 from codelens.ingest import discover_files, resolve_repo_source
 from codelens.vector_index import VectorIndex
+import logging
+
+logger = logging.getLogger("codelens.pipeline")
 
 
 @dataclass
@@ -50,7 +53,9 @@ def index_repository(
         ValueError if no chunkable files are found under `path`.
     """
 # Resolve to a local path — clones it first if `path` is actually a git URL
+    logger.info(f"Resolving repo source: {path}")
     resolved_path = resolve_repo_source(str(path))
+    logger.info(f"Resolved to local path: {resolved_path}")
 
     index_dir = Path(index_dir)
     index_dir.mkdir(parents=True, exist_ok=True)
@@ -60,21 +65,26 @@ def index_repository(
 
     # 1. Discover files
     files = discover_files(resolved_path)
+    logger.info(f"Discovered {len(files)} files to chunk")
 
     # 2. Chunk each file
     all_chunks: list[CodeChunk] = []
     for file_path in files:
         all_chunks.extend(chunk_file(file_path))
+    logger.info(f"Produced {len(all_chunks)} chunks")
 
     if not all_chunks:
         raise ValueError(f"No indexable code found under {path}")
 
     # 3. Embed all chunks
+    logger.info("Embedding chunks...")
     vectors = embedder.embed_chunks(all_chunks)
+    logger.info("Embedding complete")
 
     # 4. Build + save FAISS index
     vector_index = VectorIndex(dim=embedder.embedding_dim)
     vector_index.build(vectors)
+    logger.info("FAISS index built")
 
     # 5. Persist metadata to Postgres/Supabase (or SQLite fallback)
     engine = get_engine(database_url=database_url)
