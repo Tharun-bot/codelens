@@ -45,68 +45,8 @@ This architecture provides significantly better results than keyword search whil
 
 # Architecture
 
-```text
-                    INDEXING PIPELINE
+<img width="794" height="661" alt="image" src="https://github.com/user-attachments/assets/07ba5d3d-8a1e-4dba-ad6c-f5507c58d9e1" />
 
- Repository
- (Local Path / GitHub URL)
-          │
-          ▼
- ┌─────────────────────┐
- │ Repository Ingestion│
- └─────────────────────┘
-          │
-          ▼
- ┌─────────────────────┐
- │ Tree-sitter Chunker │
- │ (Functions/Classes) │
- └─────────────────────┘
-          │
-          ▼
- ┌─────────────────────┐
- │ Sentence Transformer│
- │     Embeddings      │
- └─────────────────────┘
-      │            │
-      │            │
-      ▼            ▼
-┌────────────┐  ┌─────────────────────┐
-│ FAISS Index│  │ Supabase / Postgres │
-│  Vectors   │  │ Metadata & Source   │
-└────────────┘  └─────────────────────┘
-
-
-                     SEARCH PIPELINE
-
-Natural Language Query
-          │
-          ▼
- ┌─────────────────────┐
- │ Query Embedding     │
- └─────────────────────┘
-          │
-          ▼
- ┌─────────────────────┐
- │ FAISS Top-K Search  │
- └─────────────────────┘
-          │
-          ▼
- ┌─────────────────────┐
- │ Cross-Encoder       │
- │     Reranking       │
- └─────────────────────┘
-          │
-          ▼
- ┌─────────────────────┐
- │ Metadata Lookup     │
- │ (Supabase)          │
- └─────────────────────┘
-          │
-          ▼
-      Ranked Results
-```
-
----
 
 # Design Decisions
 
